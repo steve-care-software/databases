@@ -1,0 +1,7 @@
+# github.com/juju/fslock v0.0.0-20160525022230-4d5c94c67b4b
+## explicit
+github.com/juju/fslock
+# github.com/steve-care-software/libs v0.0.0-20230312132714-485fdb38680d
+## explicit; go 1.19
+github.com/steve-care-software/libs/cryptography/hash
+github.com/steve-care-software/libs/cryptography/trees
