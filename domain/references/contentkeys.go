@@ -67,3 +67,15 @@ func (obj *contentKeys) Fetch(hash hash.Hash) (ContentKey, error) {
 	str := fmt.Sprintf("the contentKey (hash: %s) is invalid", contentKeyname)
 	return nil, errors.New(str)
 }
+
+// Eraseerases a contentKey by hash
+func (obj *contentKeys) Erase(hash hash.Hash) error {
+	contentKeyname := hash.String()
+	if _, ok := obj.mp[contentKeyname]; ok {
+		delete(obj.mp, contentKeyname)
+		return nil
+	}
+
+	str := fmt.Sprintf("the contentKey (hash: %s) is invalid", contentKeyname)
+	return errors.New(str)
+}

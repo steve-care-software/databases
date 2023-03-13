@@ -209,6 +209,7 @@ type ContentKeys interface {
 	List() []ContentKey
 	ListByKind(kind uint) []ContentKey
 	Fetch(hash hash.Hash) (ContentKey, error)
+	Erase(hash hash.Hash) error
 }
 
 // ContentKeyAdapter represents the content key adapter

@@ -173,6 +173,23 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
+	// erase by hash:
+	err = application.EraseAllByHash(*pContext, []hash.Hash{
+		*pHash,
+	})
+
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// read again, returns an error:
+	_, err = application.ReadByHash(*pContext, *pHash)
+	if err == nil {
+		t.Errorf("the error was expected to be valid, nil returned")
+		return
+	}
+
 	err = application.Close(*pContext)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())

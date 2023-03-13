@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/juju/fslock"
-	"github.com/steve-care-software/libs/cryptography/hash"
-	"github.com/steve-care-software/libs/cryptography/trees"
 	databases "github.com/steve-care-software/databases/applications"
 	"github.com/steve-care-software/databases/domain/contents"
 	"github.com/steve-care-software/databases/domain/references"
+	"github.com/steve-care-software/libs/cryptography/hash"
+	"github.com/steve-care-software/libs/cryptography/trees"
 )
 
 type application struct {
@@ -389,6 +389,33 @@ func (app *application) Write(context uint, kind uint, hash hash.Hash, data []by
 
 	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be written to", context)
 	return errors.New(str)
+}
+
+// EraseByHash erases by hash
+func (app *application) EraseByHash(context uint, hash hash.Hash) error {
+	if pContext, ok := app.contexts[context]; ok {
+		if pContext.reference == nil {
+			str := fmt.Sprintf("there is zero (0) ContentKey in the given context: %d", context)
+			return errors.New(str)
+		}
+
+		return app.contexts[context].reference.ContentKeys().Erase(hash)
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be deleted by hash", context)
+	return errors.New(str)
+}
+
+// EraseAllByHash erases by hashes
+func (app *application) EraseAllByHash(context uint, hashes []hash.Hash) error {
+	for _, oneHash := range hashes {
+		err := app.EraseByHash(context, oneHash)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Cancel cancels a context
