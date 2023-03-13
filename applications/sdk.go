@@ -16,12 +16,12 @@ type Application interface {
 	CommitByHash(context uint, hash hash.Hash) (references.Commit, error)
 	Commits(context uint) (references.Commits, error)
 	Read(context uint, pointer references.Pointer) ([]byte, error)
-	ReadByHash(context uint, hash hash.Hash) ([]byte, error)
+	ReadByHash(context uint, kind uint, hash hash.Hash) ([]byte, error)
 	ReadAll(context uint, pointers []references.Pointer) ([][]byte, error)
-	ReadAllByHashes(context uint, hashes []hash.Hash) ([][]byte, error)
+	ReadAllByHashes(context uint, kind uint, hashes []hash.Hash) ([][]byte, error)
 	Write(context uint, kind uint, hash hash.Hash, data []byte) error
-	EraseByHash(context uint, hash hash.Hash) error
-	EraseAllByHashes(context uint, hashes []hash.Hash) error
+	EraseByHash(context uint, kind uint, hash hash.Hash) error
+	EraseAllByHashes(context uint, kind uint, hashes []hash.Hash) error
 	Cancel(context uint) error
 	Commit(context uint) error
 	Close(context uint) error

@@ -262,10 +262,9 @@ func (app *application) ContentKeysByKind(context uint, kind uint) (references.C
 		return nil, errors.New("there is no content in the database")
 	}
 
-	list := contentKeys.ListByKind(kind)
-	if len(list) <= 0 {
-		str := fmt.Sprintf("there is no ContentKey instances for the given kind: %d", kind)
-		return nil, errors.New(str)
+	list, err := contentKeys.ListByKind(kind)
+	if err != nil {
+		return nil, err
 	}
 
 	return app.referenceContentKeysBuilder.Create().WithList(list).Now()
@@ -334,8 +333,8 @@ func (app *application) Read(context uint, pointer references.Pointer) ([]byte, 
 }
 
 // ReadByHash reads content by hash
-func (app *application) ReadByHash(context uint, hash hash.Hash) ([]byte, error) {
-	contentKey, err := app.retrieveActiveContentKeyByHash(context, hash)
+func (app *application) ReadByHash(context uint, kind uint, hash hash.Hash) ([]byte, error) {
+	contentKey, err := app.retrieveActiveContentKeyByHash(context, kind, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -343,18 +342,18 @@ func (app *application) ReadByHash(context uint, hash hash.Hash) ([]byte, error)
 	return app.Read(context, contentKey.Content())
 }
 
-func (app *application) retrieveActiveContentKeyByHash(context uint, hash hash.Hash) (references.ContentKey, error) {
-	contentKeys, err := app.contentKeys(context)
+func (app *application) retrieveActiveContentKeyByHash(context uint, kind uint, hash hash.Hash) (references.ContentKey, error) {
+	contentKeys, err := app.ContentKeysByKind(context, kind)
 	if err != nil {
 		return nil, err
 	}
 
 	if contentKeys == nil {
-		str := fmt.Sprintf("the resource (hash: %s) could not be fetched because it does not exists", hash.String())
+		str := fmt.Sprintf("the resource (kind: %d, hash: %s) could not be fetched because it does not exists", kind, hash.String())
 		return nil, errors.New(str)
 	}
 
-	return contentKeys.Fetch(hash)
+	return contentKeys.Fetch(kind, hash)
 }
 
 // ReadAll read pointers on a context
@@ -373,10 +372,10 @@ func (app *application) ReadAll(context uint, pointers []references.Pointer) ([]
 }
 
 // ReadAllByHashes reads content by hashes
-func (app *application) ReadAllByHashes(context uint, hashes []hash.Hash) ([][]byte, error) {
+func (app *application) ReadAllByHashes(context uint, kind uint, hashes []hash.Hash) ([][]byte, error) {
 	output := [][]byte{}
 	for _, oneHash := range hashes {
-		content, err := app.ReadByHash(context, oneHash)
+		content, err := app.ReadByHash(context, kind, oneHash)
 		if err != nil {
 			return nil, err
 		}
@@ -405,10 +404,10 @@ func (app *application) Write(context uint, kind uint, hash hash.Hash, data []by
 }
 
 // EraseByHash erases by hash
-func (app *application) EraseByHash(context uint, hash hash.Hash) error {
+func (app *application) EraseByHash(context uint, kind uint, hash hash.Hash) error {
 	if _, ok := app.contexts[context]; ok {
 		// retrieve the content key:
-		contentKey, err := app.retrieveActiveContentKeyByHash(context, hash)
+		contentKey, err := app.retrieveActiveContentKeyByHash(context, kind, hash)
 		if err != nil {
 			return err
 		}
@@ -422,9 +421,9 @@ func (app *application) EraseByHash(context uint, hash hash.Hash) error {
 }
 
 // EraseAllByHashes erases by hashes
-func (app *application) EraseAllByHashes(context uint, hashes []hash.Hash) error {
+func (app *application) EraseAllByHashes(context uint, kind uint, hashes []hash.Hash) error {
 	for _, oneHash := range hashes {
-		err := app.EraseByHash(context, oneHash)
+		err := app.EraseByHash(context, kind, oneHash)
 		if err != nil {
 			return err
 		}

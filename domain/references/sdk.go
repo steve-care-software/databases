@@ -224,8 +224,8 @@ type ContentKeysBuilder interface {
 type ContentKeys interface {
 	Next() int64
 	List() []ContentKey
-	ListByKind(kind uint) []ContentKey
-	Fetch(hash hash.Hash) (ContentKey, error)
+	ListByKind(kind uint) ([]ContentKey, error)
+	Fetch(kind uint, hash hash.Hash) (ContentKey, error)
 }
 
 // ContentKeyAdapter represents the content key adapter

@@ -8,17 +8,20 @@ import (
 )
 
 type contentKeys struct {
-	mp   map[string]ContentKey
-	list []ContentKey
+	mp         map[uint]map[string]ContentKey
+	listByKind map[uint][]ContentKey
+	list       []ContentKey
 }
 
 func createContentKeys(
-	mp map[string]ContentKey,
+	mp map[uint]map[string]ContentKey,
+	listByKind map[uint][]ContentKey,
 	list []ContentKey,
 ) ContentKeys {
 	out := contentKeys{
-		mp:   mp,
-		list: list,
+		mp:         mp,
+		listByKind: listByKind,
+		list:       list,
 	}
 
 	return &out
@@ -44,26 +47,27 @@ func (obj *contentKeys) Next() int64 {
 }
 
 // ListByKind returns the list by kind
-func (obj *contentKeys) ListByKind(kind uint) []ContentKey {
-	output := []ContentKey{}
-	for _, oneContentKey := range obj.list {
-		if oneContentKey.Kind() != kind {
-			continue
-		}
-
-		output = append(output, oneContentKey)
+func (obj *contentKeys) ListByKind(kind uint) ([]ContentKey, error) {
+	if list, ok := obj.listByKind[kind]; ok {
+		return list, nil
 	}
 
-	return output
+	str := fmt.Sprintf("there is no contentKey related to the provided kind (%d)", kind)
+	return nil, errors.New(str)
 }
 
-// Fetch fetches a contentKey by hash
-func (obj *contentKeys) Fetch(hash hash.Hash) (ContentKey, error) {
-	contentKeyname := hash.String()
-	if ins, ok := obj.mp[contentKeyname]; ok {
-		return ins, nil
+// Fetch fetches a contentKey by kind and hash
+func (obj *contentKeys) Fetch(kind uint, hash hash.Hash) (ContentKey, error) {
+	if mp, ok := obj.mp[kind]; ok {
+		contentKeyname := hash.String()
+		if ins, ok := mp[contentKeyname]; ok {
+			return ins, nil
+		}
+
+		str := fmt.Sprintf("the contentKey (hash: %s) is invalid for the provided kind (%d)", contentKeyname, kind)
+		return nil, errors.New(str)
 	}
 
-	str := fmt.Sprintf("the contentKey (hash: %s) is invalid", contentKeyname)
+	str := fmt.Sprintf("there is no contentKey related to the provided kind (%d)", kind)
 	return nil, errors.New(str)
 }

@@ -118,7 +118,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
-	retData, err := application.ReadByHash(*pContext, *pHash)
+	retData, err := application.ReadByHash(*pContext, kind, *pHash)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return
@@ -172,7 +172,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 	}
 
 	// erase by hashes:
-	err = application.EraseAllByHashes(*pContext, []hash.Hash{
+	err = application.EraseAllByHashes(*pContext, kind, []hash.Hash{
 		*pHash,
 	})
 
@@ -189,7 +189,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 	}
 
 	// read again, returns an error:
-	_, err = application.ReadByHash(*pContext, *pHash)
+	_, err = application.ReadByHash(*pContext, kind, *pHash)
 	if err == nil {
 		t.Errorf("the error was expected to be valid, nil returned")
 		return
@@ -239,7 +239,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
-	retSecondData, err := application.ReadByHash(*pSecondContext, *pSecondHash)
+	retSecondData, err := application.ReadByHash(*pSecondContext, kind, *pSecondHash)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return
@@ -262,7 +262,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
-	retFirstData, err := application.ReadByHash(*pThirdContext, *pHash)
+	retFirstData, err := application.ReadByHash(*pThirdContext, kind, *pHash)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return
@@ -325,7 +325,7 @@ func TestCreate_New_Insert_Erase_Success(t *testing.T) {
 	}
 
 	// erase:
-	err = application.EraseByHash(*pContext, *pHash)
+	err = application.EraseByHash(*pContext, kind, *pHash)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return
@@ -334,6 +334,84 @@ func TestCreate_New_Insert_Erase_Success(t *testing.T) {
 	err = application.Commit(*pContext)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+}
+
+func TestCreate_New_InsertResourceWithSameHashButDifferentKind_Success(t *testing.T) {
+	dirPath := "./test_files"
+	dstExtension := "destination"
+	bckExtension := "backup"
+	readChunkSize := uint(1000000)
+	defer func() {
+		os.RemoveAll(dirPath)
+	}()
+
+	name := "my_name"
+	application := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
+	err := application.New(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	pContext, err := application.Open(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	defer application.Close(*pContext)
+	firstData := []byte("this is first data")
+	pHash, err := hash.NewAdapter().FromBytes(firstData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	firstKind := uint(0)
+	err = application.Write(*pContext, firstKind, *pHash, firstData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	secondKind := uint(1)
+	secondData := []byte("this is the second data")
+	err = application.Write(*pContext, secondKind, *pHash, secondData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// commit
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// read first:
+	retFirst, err := application.ReadByHash(*pContext, firstKind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	if bytes.Compare(firstData, retFirst) != 0 {
+		t.Errorf("the first data is invalid")
+		return
+	}
+
+	// read second:
+	retSecond, err := application.ReadByHash(*pContext, secondKind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	if bytes.Compare(secondData, retSecond) != 0 {
+		t.Errorf("the second data is invalid")
 		return
 	}
 }
