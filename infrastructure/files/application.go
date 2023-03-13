@@ -162,7 +162,7 @@ func (app *application) Open(name string) (*uint, error) {
 		reference:  reference,
 		dataOffset: offset,
 		insertList: []contents.Content{},
-		delList:    []references.ContentKey{},
+		delList:    map[string]references.ContentKey{},
 	}
 
 	app.contexts[pContext.identifier] = pContext
@@ -403,6 +403,10 @@ func (app *application) Write(context uint, kind uint, hash hash.Hash, data []by
 	return errors.New(str)
 }
 
+func (app *application) makeToDeleteKeyname(kind uint, hash hash.Hash) string {
+	return fmt.Sprintf("%d%s", kind, hash.String())
+}
+
 // EraseByHash erases by hash
 func (app *application) EraseByHash(context uint, kind uint, hash hash.Hash) error {
 	if _, ok := app.contexts[context]; ok {
@@ -412,7 +416,8 @@ func (app *application) EraseByHash(context uint, kind uint, hash hash.Hash) err
 			return err
 		}
 
-		app.contexts[context].delList = append(app.contexts[context].delList, contentKey)
+		keyname := app.makeToDeleteKeyname(kind, hash)
+		app.contexts[context].delList[keyname] = contentKey
 		return nil
 	}
 
@@ -467,7 +472,7 @@ func (app *application) Commit(context uint) error {
 		app.contexts[context].dataOffset = *pDataOffset
 		app.contexts[context].pConn = pConn
 		app.contexts[context].insertList = []contents.Content{}
-		app.contexts[context].delList = []references.ContentKey{}
+		app.contexts[context].delList = map[string]references.ContentKey{}
 		return nil
 	}
 
@@ -735,43 +740,33 @@ func (app *application) writeDataAndReferenceOnDestinationFile(context *context,
 	// declare the read and write offsets:
 	readOffset := int64(context.dataOffset)
 	writeOffset := int64(writtenAmount)
-	beginWriteOffset := writeOffset
 	if context.reference != nil {
-		pInfo, _ := context.pConn.Stat()
-		contentSize := pInfo.Size() - int64(context.dataOffset)
-		chunkSize := app.makeChunkSize(uint(contentSize))
-
-		for {
-			// read the file at offset:
-			contentBytes := make([]byte, chunkSize)
-			amountRead, err := context.pConn.ReadAt(contentBytes, readOffset)
-			if err != nil {
-				break
-			}
-
-			if amountRead <= 0 {
-				break
-			}
-
-			if chunkSize != uint(amountRead) {
-				str := fmt.Sprintf("%d bytes were expected to be read from source database, %d actually read", chunkSize, amountRead)
-				return nil, errors.New(str)
-			}
-
-			// skip the copy of the content to delete:
-			writeTo := writeOffset + int64(amountRead)
-			for _, oneContentKey := range context.delList {
-				pointer := oneContentKey.Content()
-				from := int64(pointer.From())
-				pointerIndex := from + beginWriteOffset
-				if pointerIndex >= writeOffset && pointerIndex < writeTo {
-					length := pointer.Length()
-					contentBytes = append(contentBytes[:from], contentBytes[length:]...)
+		if context.reference.HasContentKeys() {
+			contentKeys := context.reference.ContentKeys().List()
+			for _, oneContentKey := range contentKeys {
+				toDelKeyname := app.makeToDeleteKeyname(oneContentKey.Kind(), oneContentKey.Hash())
+				if _, ok := context.delList[toDelKeyname]; ok {
+					continue
 				}
 
-			}
+				// fetch the pointer
+				pointer := oneContentKey.Content()
 
-			if len(contentBytes) > 0 {
+				// read the content:
+				readOffset = readOffset + int64(pointer.From())
+				to := readOffset + int64(pointer.Length())
+				chunkSize := to - readOffset
+				contentBytes := make([]byte, chunkSize)
+				amountRead, err := context.pConn.ReadAt(contentBytes, readOffset)
+				if err != nil {
+					break
+				}
+
+				if chunkSize != int64(amountRead) {
+					str := fmt.Sprintf("%d bytes were expected to be read from source database, %d actually read", chunkSize, amountRead)
+					return nil, errors.New(str)
+				}
+
 				// write content on destination:
 				err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
 				if err != nil {
@@ -781,10 +776,8 @@ func (app *application) writeDataAndReferenceOnDestinationFile(context *context,
 				// update the write offset:
 				writeOffset += int64(len(contentBytes))
 			}
-
-			//update the read offsets:
-			readOffset += int64(amountRead)
 		}
+
 	}
 
 	// write the data on disk:

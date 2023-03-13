@@ -415,3 +415,121 @@ func TestCreate_New_InsertResourceWithSameHashButDifferentKind_Success(t *testin
 		return
 	}
 }
+
+func TestCreate_Insert_thenDelete_thenInsert_SameKind_DifferentData_thenRead_Success(t *testing.T) {
+	dirPath := "./test_files"
+	dstExtension := "destination"
+	bckExtension := "backup"
+	readChunkSize := uint(1000000)
+	defer func() {
+		os.RemoveAll(dirPath)
+	}()
+
+	name := "my_name"
+	application := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
+	err := application.New(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	pContext, err := application.Open(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	defer application.Close(*pContext)
+	firstData := []byte("this is first data")
+	pHash, err := hash.NewAdapter().FromBytes(firstData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	kind := uint(0)
+	err = application.Write(*pContext, kind, *pHash, firstData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	secondKind := uint(1)
+	otherData := []byte("some other data yes!")
+	err = application.Write(*pContext, secondKind, *pHash, otherData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// commit
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// read:
+	retData, err := application.ReadByHash(*pContext, secondKind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	if bytes.Compare(otherData, retData) != 0 {
+		t.Errorf("the data is invalid")
+		return
+	}
+
+	// erase:
+	err = application.EraseByHash(*pContext, kind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	err = application.EraseByHash(*pContext, secondKind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// commit
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// re-insert:
+	err = application.Write(*pContext, kind, *pHash, firstData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	err = application.Write(*pContext, secondKind, *pHash, otherData)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// commit
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// re-read:
+	retSecondData, err := application.ReadByHash(*pContext, secondKind, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	if bytes.Compare(otherData, retSecondData) != 0 {
+		t.Errorf("the data is invalid")
+		return
+	}
+}

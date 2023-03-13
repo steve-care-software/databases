@@ -16,5 +16,5 @@ type context struct {
 	reference  references.Reference
 	dataOffset uint
 	insertList []contents.Content
-	delList    []references.ContentKey
+	delList    map[string]references.ContentKey
 }
