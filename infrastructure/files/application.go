@@ -406,8 +406,8 @@ func (app *application) EraseByHash(context uint, hash hash.Hash) error {
 	return errors.New(str)
 }
 
-// EraseAllByHash erases by hashes
-func (app *application) EraseAllByHash(context uint, hashes []hash.Hash) error {
+// EraseAllByHashes erases by hashes
+func (app *application) EraseAllByHashes(context uint, hashes []hash.Hash) error {
 	for _, oneHash := range hashes {
 		err := app.EraseByHash(context, oneHash)
 		if err != nil {
@@ -437,6 +437,10 @@ func (app *application) Commit(context uint) error {
 		return err
 	}
 
+	if updatedReference == nil {
+		return nil
+	}
+
 	if pContext, ok := app.contexts[context]; ok {
 		// update database on disk:
 		pConn, pDataOffset, err := app.updateDatabaseOnFile(pContext, updatedReference)
@@ -448,6 +452,7 @@ func (app *application) Commit(context uint) error {
 		app.contexts[context].reference = updatedReference
 		app.contexts[context].dataOffset = *pDataOffset
 		app.contexts[context].pConn = pConn
+		app.contexts[context].contentList = []contents.Content{}
 		return nil
 	}
 
@@ -457,40 +462,16 @@ func (app *application) Commit(context uint) error {
 
 func (app *application) updateReference(context uint) (references.Reference, error) {
 	if pContext, ok := app.contexts[context]; ok {
-		// find the latest commit:
-		builder := app.referenceCommitBuilder.Create()
-		if pContext.reference != nil {
-			refCommit := pContext.reference.Commits().Latest()
-			builder.WithParent(refCommit.Hash())
-		}
-
-		blocks := [][]byte{}
-		for _, oneContent := range pContext.contentList {
-			// add the hash in the blocks for the commit values:
-			blocks = append(blocks, oneContent.Hash().Bytes())
-		}
-
-		values, err := app.hashTreeBuilder.Create().WithBlocks(blocks).Now()
-		if err != nil {
-			return nil, err
-		}
-
-		createdOn := time.Now().UTC()
-		commit, err := builder.WithValues(values).CreatedOn(createdOn).Now()
-		if err != nil {
-			return nil, err
-		}
-
-		// save the pointers in the commit references:
+		// retrieve the commits list:
 		commitsList := []references.Commit{}
 		if pContext.reference != nil {
 			commitsList = pContext.reference.Commits().List()
 		}
 
-		commitsList = append(commitsList, commit)
-		commits, err := app.referenceCommitsBuilder.Create().WithList(commitsList).Now()
-		if err != nil {
-			return nil, err
+		// find the offset:
+		offset := int64(0)
+		if pContext.reference != nil {
+			offset = pContext.reference.ContentKeys().Next()
 		}
 
 		// get the pending content list:
@@ -499,32 +480,61 @@ func (app *application) updateReference(context uint) (references.Reference, err
 			contentKeysList = pContext.reference.ContentKeys().List()
 		}
 
-		// save all content:
-		offset := int64(0)
-		if pContext.reference != nil {
-			offset = pContext.reference.ContentKeys().Next()
+		// if there is content to update:
+		if len(pContext.contentList) > 0 {
+			// find the latest commit:
+			builder := app.referenceCommitBuilder.Create()
+			if pContext.reference != nil {
+				refCommit := pContext.reference.Commits().Latest()
+				builder.WithParent(refCommit.Hash())
+			}
+
+			blocks := [][]byte{}
+			for _, oneContent := range pContext.contentList {
+				// add the hash in the blocks for the commit values:
+				blocks = append(blocks, oneContent.Hash().Bytes())
+			}
+
+			values, err := app.hashTreeBuilder.Create().WithBlocks(blocks).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			createdOn := time.Now().UTC()
+			commit, err := builder.WithValues(values).CreatedOn(createdOn).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			commitHash := commit.Hash()
+			for _, oneContent := range pContext.contentList {
+				// build the pointer:
+				dataLength := int64(len(oneContent.Data()))
+				contentKeyPointer, err := app.referencePointerBuilder.Create().From(uint(offset)).WithLength(uint(dataLength)).Now()
+				if err != nil {
+					return nil, err
+				}
+
+				// build the content key:
+				contentKey, err := app.referenceContentKeyBuilder.Create().WithHash(oneContent.Hash()).WithKind(oneContent.Kind()).WithContent(contentKeyPointer).WithCommit(commitHash).Now()
+				if err != nil {
+					return nil, err
+				}
+
+				//save the content key to the list:
+				contentKeysList = append(contentKeysList, contentKey)
+
+				// update the offset:
+				offset += dataLength
+			}
+
+			// save the commit in the list:
+			commitsList = append(commitsList, commit)
 		}
 
-		commitHash := commit.Hash()
-		for _, oneContent := range pContext.contentList {
-			// build the pointer:
-			dataLength := int64(len(oneContent.Data()))
-			contentKeyPointer, err := app.referencePointerBuilder.Create().From(uint(offset)).WithLength(uint(dataLength)).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			// build the content key:
-			contentKey, err := app.referenceContentKeyBuilder.Create().WithHash(oneContent.Hash()).WithKind(oneContent.Kind()).WithContent(contentKeyPointer).WithCommit(commitHash).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			//save the content key to the list:
-			contentKeysList = append(contentKeysList, contentKey)
-
-			// update the offset:
-			offset += dataLength
+		commits, err := app.referenceCommitsBuilder.Create().WithList(commitsList).Now()
+		if err != nil {
+			return nil, err
 		}
 
 		updatedContentKeys, err := app.referenceContentKeysBuilder.Create().WithList(contentKeysList).Now()

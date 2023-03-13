@@ -21,7 +21,7 @@ type Application interface {
 	ReadAllByHashes(context uint, hashes []hash.Hash) ([][]byte, error)
 	Write(context uint, kind uint, hash hash.Hash, data []byte) error
 	EraseByHash(context uint, hash hash.Hash) error
-	EraseAllByHash(context uint, hashes []hash.Hash) error
+	EraseAllByHashes(context uint, hashes []hash.Hash) error
 	Cancel(context uint) error
 	Commit(context uint) error
 	Close(context uint) error

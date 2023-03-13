@@ -173,8 +173,8 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
-	// erase by hash:
-	err = application.EraseAllByHash(*pContext, []hash.Hash{
+	// erase by hashes:
+	err = application.EraseAllByHashes(*pContext, []hash.Hash{
 		*pHash,
 	})
 

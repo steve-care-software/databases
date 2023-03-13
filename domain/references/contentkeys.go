@@ -73,6 +73,12 @@ func (obj *contentKeys) Erase(hash hash.Hash) error {
 	contentKeyname := hash.String()
 	if _, ok := obj.mp[contentKeyname]; ok {
 		delete(obj.mp, contentKeyname)
+		list := []ContentKey{}
+		for _, oneKey := range obj.mp {
+			list = append(list, oneKey)
+		}
+
+		obj.list = list
 		return nil
 	}
 
