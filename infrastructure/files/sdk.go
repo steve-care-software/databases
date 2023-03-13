@@ -2,9 +2,9 @@ package files
 
 import (
 	databases "github.com/steve-care-software/databases/applications"
-	"github.com/steve-care-software/libs/cryptography/trees"
 	"github.com/steve-care-software/databases/domain/contents"
 	"github.com/steve-care-software/databases/domain/references"
+	"github.com/steve-care-software/libs/cryptography/trees"
 )
 
 const fileNameExtensionDelimiter = "."
@@ -13,7 +13,6 @@ const filePermission = 0777
 
 // NewApplication creates a new file application instance
 func NewApplication(
-	miningValue byte,
 	dirPath string,
 	dstExtension string,
 	bckExtension string,
@@ -21,13 +20,14 @@ func NewApplication(
 ) databases.Application {
 	contentsBuilder := contents.NewBuilder()
 	contentBuilder := contents.NewContentBuilder()
-	referenceAdapter := references.NewAdapter(miningValue)
+	referenceAdapter := references.NewAdapter()
 	referenceBuilder := references.NewBuilder()
 	referenceContentKeysBuilder := references.NewContentKeysBuilder()
 	referenceContentKeyBuilder := references.NewContentKeyBuilder()
 	referenceCommitsBuilder := references.NewCommitsBuilder()
-	referenceCommitAdapter := references.NewCommitAdapter(miningValue)
-	referenceCommitBuilder := references.NewCommitBuilder(miningValue)
+	referenceCommitAdapter := references.NewCommitAdapter()
+	referenceCommitBuilder := references.NewCommitBuilder()
+	referenceActionBuilder := references.NewActionBuilder()
 	referencePointerBuilder := references.NewPointerBuilder()
 	hashTreeBuilder := trees.NewBuilder()
 	return createApplication(
@@ -40,6 +40,7 @@ func NewApplication(
 		referenceCommitsBuilder,
 		referenceCommitAdapter,
 		referenceCommitBuilder,
+		referenceActionBuilder,
 		referencePointerBuilder,
 		hashTreeBuilder,
 		dirPath,

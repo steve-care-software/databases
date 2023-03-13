@@ -27,6 +27,7 @@ type application struct {
 	referenceCommitsBuilder     references.CommitsBuilder
 	referenceCommitAdapter      references.CommitAdapter
 	referenceCommitBuilder      references.CommitBuilder
+	referenceActionBuilder      references.ActionBuilder
 	referencePointerBuilder     references.PointerBuilder
 	hashTreeBuilder             trees.Builder
 	dirPath                     string
@@ -46,6 +47,7 @@ func createApplication(
 	referenceCommitsBuilder references.CommitsBuilder,
 	referenceCommitAdapter references.CommitAdapter,
 	referenceCommitBuilder references.CommitBuilder,
+	referenceActionBuilder references.ActionBuilder,
 	referencePointerBuilder references.PointerBuilder,
 	hashTreeBuilder trees.Builder,
 	dirPath string,
@@ -63,6 +65,7 @@ func createApplication(
 		referenceCommitsBuilder:     referenceCommitsBuilder,
 		referenceCommitAdapter:      referenceCommitAdapter,
 		referenceCommitBuilder:      referenceCommitBuilder,
+		referenceActionBuilder:      referenceActionBuilder,
 		referencePointerBuilder:     referencePointerBuilder,
 		hashTreeBuilder:             hashTreeBuilder,
 		dirPath:                     dirPath,
@@ -152,13 +155,14 @@ func (app *application) Open(name string) (*uint, error) {
 
 	// create the context:
 	pContext := &context{
-		identifier:  uint(len(app.contexts)),
-		pConn:       pConn,
-		pLock:       pLock,
-		name:        name,
-		reference:   reference,
-		dataOffset:  offset,
-		contentList: []contents.Content{},
+		identifier: uint(len(app.contexts)),
+		pConn:      pConn,
+		pLock:      pLock,
+		name:       name,
+		reference:  reference,
+		dataOffset: offset,
+		insertList: []contents.Content{},
+		delList:    []references.ContentKey{},
 	}
 
 	app.contexts[pContext.identifier] = pContext
@@ -254,6 +258,10 @@ func (app *application) ContentKeysByKind(context uint, kind uint) (references.C
 		return nil, err
 	}
 
+	if contentKeys == nil {
+		return nil, errors.New("there is no content in the database")
+	}
+
 	list := contentKeys.ListByKind(kind)
 	if len(list) <= 0 {
 		str := fmt.Sprintf("there is no ContentKey instances for the given kind: %d", kind)
@@ -341,6 +349,11 @@ func (app *application) retrieveActiveContentKeyByHash(context uint, hash hash.H
 		return nil, err
 	}
 
+	if contentKeys == nil {
+		str := fmt.Sprintf("the resource (hash: %s) could not be fetched because it does not exists", hash.String())
+		return nil, errors.New(str)
+	}
+
 	return contentKeys.Fetch(hash)
 }
 
@@ -382,7 +395,7 @@ func (app *application) Write(context uint, kind uint, hash hash.Hash, data []by
 			return err
 		}
 
-		pContext.contentList = append(pContext.contentList, contentIns)
+		pContext.insertList = append(pContext.insertList, contentIns)
 		app.contexts[context] = pContext
 		return nil
 	}
@@ -393,13 +406,15 @@ func (app *application) Write(context uint, kind uint, hash hash.Hash, data []by
 
 // EraseByHash erases by hash
 func (app *application) EraseByHash(context uint, hash hash.Hash) error {
-	if pContext, ok := app.contexts[context]; ok {
-		if pContext.reference == nil {
-			str := fmt.Sprintf("there is zero (0) ContentKey in the given context: %d", context)
-			return errors.New(str)
+	if _, ok := app.contexts[context]; ok {
+		// retrieve the content key:
+		contentKey, err := app.retrieveActiveContentKeyByHash(context, hash)
+		if err != nil {
+			return err
 		}
 
-		return app.contexts[context].reference.ContentKeys().Erase(hash)
+		app.contexts[context].delList = append(app.contexts[context].delList, contentKey)
+		return nil
 	}
 
 	str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be deleted by hash", context)
@@ -452,7 +467,8 @@ func (app *application) Commit(context uint) error {
 		app.contexts[context].reference = updatedReference
 		app.contexts[context].dataOffset = *pDataOffset
 		app.contexts[context].pConn = pConn
-		app.contexts[context].contentList = []contents.Content{}
+		app.contexts[context].insertList = []contents.Content{}
+		app.contexts[context].delList = []references.ContentKey{}
 		return nil
 	}
 
@@ -471,26 +487,78 @@ func (app *application) updateReference(context uint) (references.Reference, err
 		// find the offset:
 		offset := int64(0)
 		if pContext.reference != nil {
-			offset = pContext.reference.ContentKeys().Next()
+			if pContext.reference.HasContentKeys() {
+				offset = pContext.reference.ContentKeys().Next()
+			}
+		}
+
+		// find the latest commit:
+		builder := app.referenceCommitBuilder.Create()
+		if pContext.reference != nil {
+			refCommit := pContext.reference.Commits().Latest()
+			builder.WithParent(refCommit.Hash())
 		}
 
 		// get the pending content list:
-		contentKeysList := []references.ContentKey{}
+		contentKeysMap := map[string]references.ContentKey{}
 		if pContext.reference != nil {
-			contentKeysList = pContext.reference.ContentKeys().List()
+			if pContext.reference.HasContentKeys() {
+				contentKeysList := pContext.reference.ContentKeys().List()
+				for _, oneContentKey := range contentKeysList {
+					keyname := oneContentKey.Hash().String()
+					contentKeysMap[keyname] = oneContentKey
+				}
+			}
 		}
 
-		// if there is content to update:
-		if len(pContext.contentList) > 0 {
-			// find the latest commit:
-			builder := app.referenceCommitBuilder.Create()
-			if pContext.reference != nil {
-				refCommit := pContext.reference.Commits().Latest()
-				builder.WithParent(refCommit.Hash())
+		// if there is content to delete:
+		if len(pContext.delList) > 0 {
+			blocks := [][]byte{}
+			for _, oneContentKey := range pContext.delList {
+				// add the hash in the blocks for the commit values:
+				blocks = append(blocks, oneContentKey.Hash().Bytes())
 			}
 
+			values, err := app.hashTreeBuilder.Create().WithBlocks(blocks).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			action, err := app.referenceActionBuilder.Create().WithDelete(values).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			createdOn := time.Now().UTC()
+			commit, err := builder.WithAction(action).CreatedOn(createdOn).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			for _, oneContentKey := range pContext.delList {
+				// update the offset:
+				offset -= int64(oneContentKey.Content().Length())
+
+				// remove the content key:
+				keyname := oneContentKey.Hash().String()
+				if _, ok := contentKeysMap[keyname]; ok {
+					delete(contentKeysMap, keyname)
+				}
+			}
+
+			// save the commit in the list:
+			commitsList = append(commitsList, commit)
+		}
+
+		contentKeysList := []references.ContentKey{}
+		for _, oneContentKey := range contentKeysMap {
+			contentKeysList = append(contentKeysList, oneContentKey)
+		}
+
+		// if there is content to insert:
+		if len(pContext.insertList) > 0 {
 			blocks := [][]byte{}
-			for _, oneContent := range pContext.contentList {
+			for _, oneContent := range pContext.insertList {
 				// add the hash in the blocks for the commit values:
 				blocks = append(blocks, oneContent.Hash().Bytes())
 			}
@@ -500,14 +568,19 @@ func (app *application) updateReference(context uint) (references.Reference, err
 				return nil, err
 			}
 
+			action, err := app.referenceActionBuilder.Create().WithInsert(values).Now()
+			if err != nil {
+				return nil, err
+			}
+
 			createdOn := time.Now().UTC()
-			commit, err := builder.WithValues(values).CreatedOn(createdOn).Now()
+			commit, err := builder.WithAction(action).CreatedOn(createdOn).Now()
 			if err != nil {
 				return nil, err
 			}
 
 			commitHash := commit.Hash()
-			for _, oneContent := range pContext.contentList {
+			for _, oneContent := range pContext.insertList {
 				// build the pointer:
 				dataLength := int64(len(oneContent.Data()))
 				contentKeyPointer, err := app.referencePointerBuilder.Create().From(uint(offset)).WithLength(uint(dataLength)).Now()
@@ -537,15 +610,17 @@ func (app *application) updateReference(context uint) (references.Reference, err
 			return nil, err
 		}
 
-		updatedContentKeys, err := app.referenceContentKeysBuilder.Create().WithList(contentKeysList).Now()
-		if err != nil {
-			return nil, err
+		referenceBuilder := app.referenceBuilder.Create().WithCommits(commits)
+		if len(contentKeysList) > 0 {
+			updatedContentKeys, err := app.referenceContentKeysBuilder.Create().WithList(contentKeysList).Now()
+			if err != nil {
+				return nil, err
+			}
+
+			referenceBuilder.WithContentKeys(updatedContentKeys)
 		}
 
-		return app.referenceBuilder.Create().
-			WithContentKeys(updatedContentKeys).
-			WithCommits(commits).
-			Now()
+		return referenceBuilder.Now()
 	}
 
 	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be comitted", context)
@@ -658,9 +733,10 @@ func (app *application) writeDataAndReferenceOnDestinationFile(context *context,
 		return nil, errors.New(str)
 	}
 
-	// decl;are the read and write offsets:
+	// declare the read and write offsets:
 	readOffset := int64(context.dataOffset)
 	writeOffset := int64(writtenAmount)
+	beginWriteOffset := writeOffset
 	if context.reference != nil {
 		pInfo, _ := context.pConn.Stat()
 		contentSize := pInfo.Size() - int64(context.dataOffset)
@@ -674,25 +750,46 @@ func (app *application) writeDataAndReferenceOnDestinationFile(context *context,
 				break
 			}
 
+			if amountRead <= 0 {
+				break
+			}
+
 			if chunkSize != uint(amountRead) {
 				str := fmt.Sprintf("%d bytes were expected to be read from source database, %d actually read", chunkSize, amountRead)
 				return nil, errors.New(str)
 			}
 
-			// write content on destination:
-			err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
-			if err != nil {
-				break
+			// skip the copy of the content to delete:
+			writeTo := writeOffset + int64(amountRead)
+			for _, oneContentKey := range context.delList {
+				pointer := oneContentKey.Content()
+				from := int64(pointer.From())
+				pointerIndex := from + beginWriteOffset
+				if pointerIndex >= writeOffset && pointerIndex < writeTo {
+					length := pointer.Length()
+					contentBytes = append(contentBytes[:from], contentBytes[length:]...)
+				}
+
 			}
 
-			//update the offsets:
+			if len(contentBytes) > 0 {
+				// write content on destination:
+				err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
+				if err != nil {
+					break
+				}
+
+				// update the write offset:
+				writeOffset += int64(len(contentBytes))
+			}
+
+			//update the read offsets:
 			readOffset += int64(amountRead)
-			writeOffset += int64(amountRead)
 		}
 	}
 
 	// write the data on disk:
-	for _, oneContent := range context.contentList {
+	for _, oneContent := range context.insertList {
 		contentBytes := oneContent.Data()
 		err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
 		if err != nil {

@@ -1,8 +1,6 @@
 package references
 
 import (
-	"math/big"
-	"net/url"
 	"time"
 
 	"github.com/steve-care-software/libs/cryptography/hash"
@@ -10,16 +8,15 @@ import (
 )
 
 const pointerSize = 8 * 2
-const commitMinSize = 8 + 8 + trees.MinHashtreeSize
+const actionSize = trees.MinHashtreeSize + 1 + 8
+const commitMinSize = 8 + 8 + actionSize
 const contentKeySize = hash.Size + pointerSize + 8 + hash.Size
 const minReferenceSize = contentKeySize + commitMinSize
 
 // NewAdapter creates a new adapter instance
-func NewAdapter(
-	miningValue byte,
-) Adapter {
+func NewAdapter() Adapter {
 	contentKeysAdapter := NewContentKeysAdapter()
-	commitsAdapter := NewCommitsAdapter(miningValue)
+	commitsAdapter := NewCommitsAdapter()
 	builder := NewBuilder()
 	return createAdapter(
 		contentKeysAdapter,
@@ -40,10 +37,8 @@ func NewBuilder() Builder {
 }
 
 // NewCommitsAdapter creates a new commits adapter
-func NewCommitsAdapter(
-	miningValue byte,
-) CommitsAdapter {
-	adapter := NewCommitAdapter(miningValue)
+func NewCommitsAdapter() CommitsAdapter {
+	adapter := NewCommitAdapter()
 	builder := NewCommitsBuilder()
 	return createCommitsAdapter(adapter, builder)
 }
@@ -54,24 +49,33 @@ func NewCommitsBuilder() CommitsBuilder {
 }
 
 // NewCommitAdapter creates a new commit adapter
-func NewCommitAdapter(
-	miningValue byte,
-) CommitAdapter {
+func NewCommitAdapter() CommitAdapter {
 	hashAdapter := hash.NewAdapter()
-	hashTreeAdapter := trees.NewAdapter()
-	builder := NewCommitBuilder(miningValue)
-	return createCommitAdapter(hashAdapter, hashTreeAdapter, builder)
+	actionAdapter := NewActionAdapter()
+	builder := NewCommitBuilder()
+	return createCommitAdapter(hashAdapter, actionAdapter, builder)
 }
 
 // NewCommitBuilder creates a new commit builder
-func NewCommitBuilder(
-	miningValue byte,
-) CommitBuilder {
+func NewCommitBuilder() CommitBuilder {
 	hashAdapter := hash.NewAdapter()
 	return createCommitBuilder(
 		hashAdapter,
-		miningValue,
 	)
+}
+
+// NewActionAdapter creates a new action adapter
+func NewActionAdapter() ActionAdapter {
+	hashAdapter := hash.NewAdapter()
+	hashTreeAdapter := trees.NewAdapter()
+	builder := NewActionBuilder()
+	return createActionAdapter(hashAdapter, hashTreeAdapter, builder)
+}
+
+// NewActionBuilder creates a new action builder
+func NewActionBuilder() ActionBuilder {
+	hashAdapter := hash.NewAdapter()
+	return createActionBuilder(hashAdapter)
 }
 
 // NewContentKeysAdapter creates a new content keys adapter
@@ -126,14 +130,14 @@ type Builder interface {
 	Create() Builder
 	WithContentKeys(contentKeys ContentKeys) Builder
 	WithCommits(commits Commits) Builder
-	WithPeers(peers []*url.URL) Builder
 	Now() (Reference, error)
 }
 
 // Reference represents the reference
 type Reference interface {
-	ContentKeys() ContentKeys
 	Commits() Commits
+	HasContentKeys() bool
+	ContentKeys() ContentKeys
 }
 
 // CommitsAdapter represents a commits adapter
@@ -165,9 +169,8 @@ type CommitAdapter interface {
 // CommitBuilder represents a commit builder
 type CommitBuilder interface {
 	Create() CommitBuilder
-	WithValues(values trees.HashTree) CommitBuilder
+	WithAction(action Action) CommitBuilder
 	WithParent(parent hash.Hash) CommitBuilder
-	WithProof(proof *big.Int) CommitBuilder
 	CreatedOn(createdOn time.Time) CommitBuilder
 	Now() (Commit, error)
 }
@@ -175,19 +178,33 @@ type CommitBuilder interface {
 // Commit represents a commit
 type Commit interface {
 	Hash() hash.Hash
-	Values() trees.HashTree
+	Action() Action
 	CreatedOn() time.Time
 	HasParent() bool
 	Parent() *hash.Hash
-	HasMine() bool
-	Mine() Mine
 }
 
-// Mine represents a mine
-type Mine interface {
-	Result() hash.Hash
-	Proof() *big.Int
-	Score() uint
+// ActionAdapter represents an action adapter
+type ActionAdapter interface {
+	ToContent(ins Action) ([]byte, error)
+	ToAction(content []byte) (Action, error)
+}
+
+// ActionBuilder represents an action builder
+type ActionBuilder interface {
+	Create() ActionBuilder
+	WithInsert(insert trees.HashTree) ActionBuilder
+	WithDelete(delete trees.HashTree) ActionBuilder
+	Now() (Action, error)
+}
+
+// Action represents a commit action
+type Action interface {
+	Hash() hash.Hash
+	HasInsert() bool
+	Insert() trees.HashTree
+	HasDelete() bool
+	Delete() trees.HashTree
 }
 
 // ContentKeysAdapter represents the content keys adapter
@@ -209,7 +226,6 @@ type ContentKeys interface {
 	List() []ContentKey
 	ListByKind(kind uint) []ContentKey
 	Fetch(hash hash.Hash) (ContentKey, error)
-	Erase(hash hash.Hash) error
 }
 
 // ContentKeyAdapter represents the content key adapter

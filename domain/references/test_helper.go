@@ -2,7 +2,6 @@ package references
 
 import (
 	"fmt"
-	"math/big"
 	"math/rand"
 	"time"
 
@@ -12,6 +11,17 @@ import (
 
 // NewReferenceForTests creates a new reference with peers for tests
 func NewReferenceForTests(maxPeerAmount uint) Reference {
+	commits := NewCommitsForTests(32)
+	ins, err := NewBuilder().Create().WithCommits(commits).Now()
+	if err != nil {
+		panic(err)
+	}
+
+	return ins
+}
+
+// NewReferenceWithContentKeysForTests creates a new reference with contentKeys for tests
+func NewReferenceWithContentKeysForTests(maxPeerAmount uint) Reference {
 	contentKeys, err := NewContentKeysBuilder().Create().WithList([]ContentKey{
 		NewContentKeyForTests(),
 		NewContentKeyForTests(),
@@ -49,17 +59,9 @@ func NewCommitsForTests(amount uint) Commits {
 
 // NewCommitForTests creates a new commit for tests
 func NewCommitForTests() Commit {
-	values, err := trees.NewBuilder().Create().WithBlocks([][]byte{
-		[]byte("first"),
-		[]byte("second"),
-		[]byte("third"),
-	}).Now()
-	if err != nil {
-		panic(err)
-	}
-
 	createdOn := time.Now().UTC()
-	ins, err := NewCommitBuilder([]byte("0")[0]).Create().WithValues(values).CreatedOn(createdOn).Now()
+	action := NewActionWithInsert()
+	ins, err := NewCommitBuilder().Create().WithAction(action).CreatedOn(createdOn).Now()
 	if err != nil {
 		panic(err)
 	}
@@ -69,22 +71,14 @@ func NewCommitForTests() Commit {
 
 // NewCommitWithParentForTests creates a new commit with parent for tests
 func NewCommitWithParentForTests() Commit {
-	values, err := trees.NewBuilder().Create().WithBlocks([][]byte{
-		[]byte("first"),
-		[]byte("second"),
-		[]byte("third"),
-	}).Now()
-	if err != nil {
-		panic(err)
-	}
-
 	pParentHash, err := hash.NewAdapter().FromBytes([]byte("this is a parent hash"))
 	if err != nil {
 		panic(err)
 	}
 
 	createdOn := time.Now().UTC()
-	ins, err := NewCommitBuilder([]byte("0")[0]).Create().WithValues(values).WithParent(*pParentHash).CreatedOn(createdOn).Now()
+	action := NewActionWithDelete()
+	ins, err := NewCommitBuilder().Create().WithAction(action).WithParent(*pParentHash).CreatedOn(createdOn).Now()
 	if err != nil {
 		panic(err)
 	}
@@ -92,9 +86,9 @@ func NewCommitWithParentForTests() Commit {
 	return ins
 }
 
-// NewCommitWithProofForTests creates a new commit with proof for tests
-func NewCommitWithProofForTests() Commit {
-	values, err := trees.NewBuilder().Create().WithBlocks([][]byte{
+// NewActionWithInsertAndDelete creates a new action with insert and delete
+func NewActionWithInsertAndDelete() Action {
+	insert, err := trees.NewBuilder().Create().WithBlocks([][]byte{
 		[]byte("first"),
 		[]byte("second"),
 		[]byte("third"),
@@ -103,9 +97,16 @@ func NewCommitWithProofForTests() Commit {
 		panic(err)
 	}
 
-	pProof := big.NewInt(int64(4523453))
-	createdOn := time.Now().UTC()
-	ins, err := NewCommitBuilder([]byte("0")[0]).Create().WithValues(values).WithProof(pProof).CreatedOn(createdOn).Now()
+	del, err := trees.NewBuilder().Create().WithBlocks([][]byte{
+		[]byte("first del"),
+		[]byte("second del"),
+		[]byte("third del"),
+	}).Now()
+	if err != nil {
+		panic(err)
+	}
+
+	ins, err := NewActionBuilder().Create().WithInsert(insert).WithDelete(del).Now()
 	if err != nil {
 		panic(err)
 	}
@@ -113,8 +114,8 @@ func NewCommitWithProofForTests() Commit {
 	return ins
 }
 
-// NewCommitWithParentAndProofForTests creates a new commit with parent and proof for tests
-func NewCommitWithParentAndProofForTests() Commit {
+// NewActionWithInsert creates a new action with insert
+func NewActionWithInsert() Action {
 	values, err := trees.NewBuilder().Create().WithBlocks([][]byte{
 		[]byte("first"),
 		[]byte("second"),
@@ -124,14 +125,26 @@ func NewCommitWithParentAndProofForTests() Commit {
 		panic(err)
 	}
 
-	pParentHash, err := hash.NewAdapter().FromBytes([]byte("this is a parent hash"))
+	ins, err := NewActionBuilder().Create().WithInsert(values).Now()
 	if err != nil {
 		panic(err)
 	}
 
-	pProof := big.NewInt(int64(4523453))
-	createdOn := time.Now().UTC()
-	ins, err := NewCommitBuilder([]byte("0")[0]).Create().WithValues(values).WithParent(*pParentHash).WithProof(pProof).CreatedOn(createdOn).Now()
+	return ins
+}
+
+// NewActionWithDelete creates a new action with delete
+func NewActionWithDelete() Action {
+	values, err := trees.NewBuilder().Create().WithBlocks([][]byte{
+		[]byte("first"),
+		[]byte("second"),
+		[]byte("third"),
+	}).Now()
+	if err != nil {
+		panic(err)
+	}
+
+	ins, err := NewActionBuilder().Create().WithDelete(values).Now()
 	if err != nil {
 		panic(err)
 	}

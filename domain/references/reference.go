@@ -1,45 +1,33 @@
 package references
 
-import "net/url"
-
 type reference struct {
-	contentKeys ContentKeys
 	commits     Commits
-	peers       []*url.URL
+	contentKeys ContentKeys
 }
 
 func createReference(
-	contentKeys ContentKeys,
 	commits Commits,
 ) Reference {
-	return createReferenceInternally(contentKeys, commits, nil)
+	return createReferenceInternally(commits, nil)
 }
 
-func createReferenceWithPeers(
-	contentKeys ContentKeys,
+func createReferenceWithContentKeys(
 	commits Commits,
-	peers []*url.URL,
+	contentKeys ContentKeys,
 ) Reference {
-	return createReferenceInternally(contentKeys, commits, peers)
+	return createReferenceInternally(commits, contentKeys)
 }
 
 func createReferenceInternally(
-	contentKeys ContentKeys,
 	commits Commits,
-	peers []*url.URL,
+	contentKeys ContentKeys,
 ) Reference {
 	out := reference{
 		contentKeys: contentKeys,
 		commits:     commits,
-		peers:       peers,
 	}
 
 	return &out
-}
-
-// ContentKeys returns the contentKeys
-func (obj *reference) ContentKeys() ContentKeys {
-	return obj.contentKeys
 }
 
 // Commits returns the commits, if any
@@ -47,12 +35,12 @@ func (obj *reference) Commits() Commits {
 	return obj.commits
 }
 
-// HasPeers returns true if there is peers, false otherwise
-func (obj *reference) HasPeers() bool {
-	return obj.peers != nil
+// HasContentKeys returns true if there is contentKeys, false otherwise
+func (obj *reference) HasContentKeys() bool {
+	return obj.contentKeys != nil
 }
 
-// Peers returns the peers, if any
-func (obj *reference) Peers() []*url.URL {
-	return obj.peers
+// ContentKeys returns the contentKeys
+func (obj *reference) ContentKeys() ContentKeys {
+	return obj.contentKeys
 }

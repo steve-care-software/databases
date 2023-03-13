@@ -10,7 +10,6 @@ import (
 )
 
 func TestExists_thenCreate_thenDelete_Success(t *testing.T) {
-	miningValue := []byte("0")[0]
 	dirPath := "./test_files"
 	dstExtension := "destination"
 	bckExtension := "backup"
@@ -19,7 +18,7 @@ func TestExists_thenCreate_thenDelete_Success(t *testing.T) {
 		os.RemoveAll(dirPath)
 	}()
 
-	application := NewApplication(miningValue, dirPath, dstExtension, bckExtension, readChunkSize)
+	application := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
 
 	name := "my_name"
 	exists, err := application.Exists(name)
@@ -75,7 +74,6 @@ func TestExists_thenCreate_thenDelete_Success(t *testing.T) {
 }
 
 func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
-	miningValue := []byte("0")[0]
 	dirPath := "./test_files"
 	dstExtension := "destination"
 	bckExtension := "backup"
@@ -85,7 +83,7 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 	}()
 
 	hashAdapter := hash.NewAdapter()
-	application := NewApplication(miningValue, dirPath, dstExtension, bckExtension, readChunkSize)
+	application := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
 
 	name := "my_name"
 	err := application.New(name)
@@ -183,10 +181,30 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 		return
 	}
 
+	// commit:
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
 	// read again, returns an error:
 	_, err = application.ReadByHash(*pContext, *pHash)
 	if err == nil {
 		t.Errorf("the error was expected to be valid, nil returned")
+		return
+	}
+
+	// insert again the resource we just deleted:
+	err = application.Write(*pContext, kind, *pHash, data)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return
 	}
 
@@ -256,6 +274,64 @@ func TestCreate_thenOpen_thenWrite_thenRead_Success(t *testing.T) {
 	}
 
 	err = application.Close(*pThirdContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+}
+
+func TestCreate_New_Insert_Erase_Success(t *testing.T) {
+	dirPath := "./test_files"
+	dstExtension := "destination"
+	bckExtension := "backup"
+	readChunkSize := uint(1000000)
+	defer func() {
+		os.RemoveAll(dirPath)
+	}()
+
+	name := "my_name"
+	application := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
+	err := application.New(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	pContext, err := application.Open(name)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	defer application.Close(*pContext)
+	data := []byte("this is some data")
+	pHash, err := hash.NewAdapter().FromBytes(data)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	kind := uint(0)
+	err = application.Write(*pContext, kind, *pHash, data)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	err = application.Commit(*pContext)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	// erase:
+	err = application.EraseByHash(*pContext, *pHash)
+	if err != nil {
+		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
+		return
+	}
+
+	err = application.Commit(*pContext)
 	if err != nil {
 		t.Errorf("the error was expected to be nil, error returned: %s", err.Error())
 		return

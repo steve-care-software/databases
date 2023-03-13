@@ -4,66 +4,43 @@ import (
 	"time"
 
 	"github.com/steve-care-software/libs/cryptography/hash"
-	"github.com/steve-care-software/libs/cryptography/trees"
 )
 
 type commit struct {
 	hash      hash.Hash
-	values    trees.HashTree
+	action    Action
 	createdOn time.Time
 	pParent   *hash.Hash
-	mine      Mine
 }
 
 func createCommit(
 	hash hash.Hash,
-	values trees.HashTree,
+	action Action,
 	createdOn time.Time,
 ) Commit {
-	return createCommitInternally(hash, values, createdOn, nil, nil)
+	return createCommitInternally(hash, action, createdOn, nil)
 }
 
 func createCommitWithParent(
 	hash hash.Hash,
-	values trees.HashTree,
+	action Action,
 	createdOn time.Time,
 	pParent *hash.Hash,
 ) Commit {
-	return createCommitInternally(hash, values, createdOn, pParent, nil)
-}
-
-func createCommitWithMine(
-	hash hash.Hash,
-	values trees.HashTree,
-	createdOn time.Time,
-	mine Mine,
-) Commit {
-	return createCommitInternally(hash, values, createdOn, nil, mine)
-}
-
-func createCommitWithParentAndMine(
-	hash hash.Hash,
-	values trees.HashTree,
-	createdOn time.Time,
-	pParent *hash.Hash,
-	mine Mine,
-) Commit {
-	return createCommitInternally(hash, values, createdOn, pParent, mine)
+	return createCommitInternally(hash, action, createdOn, pParent)
 }
 
 func createCommitInternally(
 	hash hash.Hash,
-	values trees.HashTree,
+	action Action,
 	createdOn time.Time,
 	pParent *hash.Hash,
-	mine Mine,
 ) Commit {
 	out := commit{
 		hash:      hash,
-		values:    values,
+		action:    action,
 		createdOn: createdOn,
 		pParent:   pParent,
-		mine:      mine,
 	}
 
 	return &out
@@ -74,9 +51,9 @@ func (obj *commit) Hash() hash.Hash {
 	return obj.hash
 }
 
-// Values returns the values
-func (obj *commit) Values() trees.HashTree {
-	return obj.values
+// Action returns the action
+func (obj *commit) Action() Action {
+	return obj.action
 }
 
 // CreatedOn returns the creation time
@@ -92,14 +69,4 @@ func (obj *commit) HasParent() bool {
 // Parent returns the parent, if any
 func (obj *commit) Parent() *hash.Hash {
 	return obj.pParent
-}
-
-// HasMine returns true if there is a mine, false otherwise
-func (obj *commit) HasMine() bool {
-	return obj.mine != nil
-}
-
-// Mine returns the mine, if any
-func (obj *commit) Mine() Mine {
-	return obj.mine
 }

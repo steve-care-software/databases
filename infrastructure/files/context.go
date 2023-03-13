@@ -9,11 +9,12 @@ import (
 )
 
 type context struct {
-	identifier  uint
-	name        string
-	pLock       *fslock.Lock
-	pConn       *os.File
-	reference   references.Reference
-	dataOffset  uint
-	contentList []contents.Content
+	identifier uint
+	name       string
+	pLock      *fslock.Lock
+	pConn      *os.File
+	reference  references.Reference
+	dataOffset uint
+	insertList []contents.Content
+	delList    []references.ContentKey
 }
