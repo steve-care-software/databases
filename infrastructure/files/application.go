@@ -235,24 +235,8 @@ func (app *application) retrieveReference(name string) (references.Reference, ui
 	return ins, uint(offset), nil
 }
 
-// HashesByKind returns the hashes by kind
-func (app *application) HashesByKind(context uint, kind uint) ([]hash.Hash, error) {
-	keys, err := app.ContentKeysByKind(context, kind)
-	if err != nil {
-		return nil, err
-	}
-
-	hashes := []hash.Hash{}
-	list := keys.List()
-	for _, oneContentKey := range list {
-		hashes = append(hashes, oneContentKey.Hash())
-	}
-
-	return hashes, nil
-}
-
-// ContentKeysByKind returns the contentKeys by context and kind
-func (app *application) ContentKeysByKind(context uint, kind uint) (references.ContentKeys, error) {
+// ContentKeys returns the contentKeys by context and kind
+func (app *application) ContentKeys(context uint, kind uint) (references.ContentKeys, error) {
 	contentKeys, err := app.contentKeys(context)
 	if err != nil {
 		return nil, err
@@ -282,16 +266,6 @@ func (app *application) contentKeys(context uint) (references.ContentKeys, error
 
 	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot return the Content instance", context)
 	return nil, errors.New(str)
-}
-
-// CommitByHash returns the commit by hash
-func (app *application) CommitByHash(context uint, hash hash.Hash) (references.Commit, error) {
-	commits, err := app.Commits(context)
-	if err != nil {
-		return nil, err
-	}
-
-	return commits.Fetch(hash)
 }
 
 // Commits returns the commits on a context
@@ -332,50 +306,11 @@ func (app *application) Read(context uint, pointer references.Pointer) ([]byte, 
 	return nil, errors.New(str)
 }
 
-// ReadByHash reads content by hash
-func (app *application) ReadByHash(context uint, kind uint, hash hash.Hash) ([]byte, error) {
-	contentKey, err := app.retrieveActiveContentKeyByHash(context, kind, hash)
-	if err != nil {
-		return nil, err
-	}
-
-	return app.Read(context, contentKey.Content())
-}
-
-func (app *application) retrieveActiveContentKeyByHash(context uint, kind uint, hash hash.Hash) (references.ContentKey, error) {
-	contentKeys, err := app.ContentKeysByKind(context, kind)
-	if err != nil {
-		return nil, err
-	}
-
-	if contentKeys == nil {
-		str := fmt.Sprintf("the resource (kind: %d, hash: %s) could not be fetched because it does not exists", kind, hash.String())
-		return nil, errors.New(str)
-	}
-
-	return contentKeys.Fetch(kind, hash)
-}
-
 // ReadAll read pointers on a context
 func (app *application) ReadAll(context uint, pointers []references.Pointer) ([][]byte, error) {
 	output := [][]byte{}
 	for _, onePointer := range pointers {
 		content, err := app.Read(context, onePointer)
-		if err != nil {
-			return nil, err
-		}
-
-		output = append(output, content)
-	}
-
-	return output, nil
-}
-
-// ReadAllByHashes reads content by hashes
-func (app *application) ReadAllByHashes(context uint, kind uint, hashes []hash.Hash) ([][]byte, error) {
-	output := [][]byte{}
-	for _, oneHash := range hashes {
-		content, err := app.ReadByHash(context, kind, oneHash)
 		if err != nil {
 			return nil, err
 		}
@@ -407,40 +342,10 @@ func (app *application) makeToDeleteKeyname(kind uint, hash hash.Hash) string {
 	return fmt.Sprintf("%d%s", kind, hash.String())
 }
 
-// EraseByHash erases by hash
-func (app *application) EraseByHash(context uint, kind uint, hash hash.Hash) error {
-	if _, ok := app.contexts[context]; ok {
-		// retrieve the content key:
-		contentKey, err := app.retrieveActiveContentKeyByHash(context, kind, hash)
-		if err != nil {
-			return err
-		}
-
-		keyname := app.makeToDeleteKeyname(kind, hash)
-		app.contexts[context].delList[keyname] = contentKey
-		return nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be deleted by hash", context)
-	return errors.New(str)
-}
-
-// EraseAllByHashes erases by hashes
-func (app *application) EraseAllByHashes(context uint, kind uint, hashes []hash.Hash) error {
-	for _, oneHash := range hashes {
-		err := app.EraseByHash(context, kind, oneHash)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // Erase erases a contentKey
 func (app *application) Erase(context uint, contentKey references.ContentKey) error {
 	if _, ok := app.contexts[context]; !ok {
-		str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be erased", context)
+		str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be deleted by hash", context)
 		return errors.New(str)
 	}
 
