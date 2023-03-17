@@ -437,6 +437,20 @@ func (app *application) EraseAllByHashes(context uint, kind uint, hashes []hash.
 	return nil
 }
 
+// Erase erases a contentKey
+func (app *application) Erase(context uint, contentKey references.ContentKey) error {
+	if _, ok := app.contexts[context]; !ok {
+		str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be erased", context)
+		return errors.New(str)
+	}
+
+	hash := contentKey.Hash()
+	kind := contentKey.Kind()
+	keyname := fmt.Sprintf("%d%s", kind, hash.String())
+	app.contexts[context].delList[keyname] = contentKey
+	return nil
+}
+
 // Cancel cancels a context
 func (app *application) Cancel(context uint) error {
 	if pContext, ok := app.contexts[context]; ok {

@@ -22,6 +22,7 @@ type Application interface {
 	Write(context uint, kind uint, hash hash.Hash, data []byte) error
 	EraseByHash(context uint, kind uint, hash hash.Hash) error
 	EraseAllByHashes(context uint, kind uint, hashes []hash.Hash) error
+	Erase(context uint, contentKey references.ContentKey) error
 	Cancel(context uint) error
 	Commit(context uint) error
 	Close(context uint) error
