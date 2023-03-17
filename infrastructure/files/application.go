@@ -169,6 +169,27 @@ func (app *application) Open(name string) (*uint, error) {
 	return &pContext.identifier, nil
 }
 
+// Read reads
+func (app *application) Read(context uint, offset uint, length uint) ([]byte, error) {
+	if pContext, ok := app.contexts[context]; ok {
+		contentBytes := make([]byte, length)
+		refContentAmount, err := pContext.pConn.ReadAt(contentBytes, int64(offset))
+		if err != nil {
+			return nil, err
+		}
+
+		if refContentAmount != int(length) {
+			str := fmt.Sprintf("the Read operation was expected to read %d bytes, %d returned", length, refContentAmount)
+			return nil, errors.New(str)
+		}
+
+		return contentBytes, nil
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Read using this context", context)
+	return nil, errors.New(str)
+}
+
 func (app *application) makeChunkSize(length uint) uint {
 	if app.readChunkSize > length {
 		return length
@@ -235,125 +256,8 @@ func (app *application) retrieveReference(name string) (references.Reference, ui
 	return ins, uint(offset), nil
 }
 
-// ContentKeys returns the contentKeys by context and kind
-func (app *application) ContentKeys(context uint, kind uint) (references.ContentKeys, error) {
-	contentKeys, err := app.contentKeys(context)
-	if err != nil {
-		return nil, err
-	}
-
-	if contentKeys == nil {
-		return nil, errors.New("there is no content in the database")
-	}
-
-	list, err := contentKeys.ListByKind(kind)
-	if err != nil {
-		return nil, err
-	}
-
-	return app.referenceContentKeysBuilder.Create().WithList(list).Now()
-}
-
-func (app *application) contentKeys(context uint) (references.ContentKeys, error) {
-	if pContext, ok := app.contexts[context]; ok {
-		if pContext.reference == nil {
-			str := fmt.Sprintf("there is zero (0) ContentKey in the given context: %d", context)
-			return nil, errors.New(str)
-		}
-
-		return pContext.reference.ContentKeys(), nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot return the Content instance", context)
-	return nil, errors.New(str)
-}
-
-// Commits returns the commits on a context
-func (app *application) Commits(context uint) (references.Commits, error) {
-	if pContext, ok := app.contexts[context]; ok {
-		if pContext.reference == nil {
-			str := fmt.Sprintf("there is zero (0) Commit in the given context: %d", context)
-			return nil, errors.New(str)
-		}
-
-		return pContext.reference.Commits(), nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot return the Commits instance", context)
-	return nil, errors.New(str)
-}
-
-// Read reads a pointer on a context
-func (app *application) Read(context uint, pointer references.Pointer) ([]byte, error) {
-	if pContext, ok := app.contexts[context]; ok {
-		offset := pContext.dataOffset + pointer.From()
-		length := pointer.Length()
-		contentBytes := make([]byte, length)
-		refContentAmount, err := pContext.pConn.ReadAt(contentBytes, int64(offset))
-		if err != nil {
-			return nil, err
-		}
-
-		if refContentAmount != int(length) {
-			str := fmt.Sprintf("the Read operation was expected to read %d bytes, %d returned", length, refContentAmount)
-			return nil, errors.New(str)
-		}
-
-		return contentBytes, nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Read using this context", context)
-	return nil, errors.New(str)
-}
-
-// ReadAll read pointers on a context
-func (app *application) ReadAll(context uint, pointers []references.Pointer) ([][]byte, error) {
-	output := [][]byte{}
-	for _, onePointer := range pointers {
-		content, err := app.Read(context, onePointer)
-		if err != nil {
-			return nil, err
-		}
-
-		output = append(output, content)
-	}
-
-	return output, nil
-}
-
-// Write writes data to a context
-func (app *application) Write(context uint, kind uint, hash hash.Hash, data []byte) error {
-	if pContext, ok := app.contexts[context]; ok {
-		contentIns, err := app.contentBuilder.Create().WithHash(hash).WithData(data).WithKind(kind).Now()
-		if err != nil {
-			return err
-		}
-
-		pContext.insertList = append(pContext.insertList, contentIns)
-		app.contexts[context] = pContext
-		return nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be written to", context)
-	return errors.New(str)
-}
-
 func (app *application) makeToDeleteKeyname(kind uint, hash hash.Hash) string {
 	return fmt.Sprintf("%d%s", kind, hash.String())
-}
-
-// Erase erases a contentKey
-func (app *application) Erase(context uint, contentKey references.ContentKey) error {
-	if _, ok := app.contexts[context]; !ok {
-		str := fmt.Sprintf("the given context (%d) does not exists and therefore the resource cannot be deleted by hash", context)
-		return errors.New(str)
-	}
-
-	hash := contentKey.Hash()
-	kind := contentKey.Kind()
-	keyname := fmt.Sprintf("%d%s", kind, hash.String())
-	app.contexts[context].delList[keyname] = contentKey
-	return nil
 }
 
 // Cancel cancels a context
