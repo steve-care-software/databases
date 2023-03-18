@@ -14,6 +14,7 @@ import (
 )
 
 type application struct {
+	onOpenFn                    databases.OnOpenFn
 	contentsBuilder             contents.Builder
 	contentBuilder              contents.ContentBuilder
 	referenceAdapter            references.Adapter
@@ -34,6 +35,7 @@ type application struct {
 }
 
 func createApplication(
+	onOpenFn databases.OnOpenFn,
 	contentsBuilder contents.Builder,
 	contentBuilder contents.ContentBuilder,
 	referenceAdapter references.Adapter,
@@ -52,6 +54,7 @@ func createApplication(
 	readChunkSize uint,
 ) databases.Application {
 	out := application{
+		onOpenFn:                    onOpenFn,
 		contentsBuilder:             contentsBuilder,
 		contentBuilder:              contentBuilder,
 		referenceAdapter:            referenceAdapter,
@@ -132,6 +135,12 @@ func (app *application) Open(name string) (*uint, error) {
 			str := fmt.Sprintf("there is already an open context for the provided name: %s", name)
 			return nil, errors.New(str)
 		}
+	}
+
+	// execute the open callback
+	err := app.onOpenFn(name)
+	if err != nil {
+		return nil, err
 	}
 
 	// open the connection:

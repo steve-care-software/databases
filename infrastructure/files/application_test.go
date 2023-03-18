@@ -14,7 +14,7 @@ func TestExists_thenCreate_thenDelete_Success(t *testing.T) {
 		os.RemoveAll(dirPath)
 	}()
 
-	database := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize)
+	database := NewApplication(dirPath, dstExtension, bckExtension, readChunkSize, nil)
 
 	name := "my_name"
 	exists, err := database.Exists(name)

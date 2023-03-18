@@ -17,6 +17,7 @@ func NewApplication(
 	dstExtension string,
 	bckExtension string,
 	readChunkSize uint,
+	onOpenFn databases.OnOpenFn,
 ) databases.Application {
 	contentsBuilder := contents.NewBuilder()
 	contentBuilder := contents.NewContentBuilder()
@@ -31,6 +32,7 @@ func NewApplication(
 	referencePointerBuilder := references.NewPointerBuilder()
 	hashTreeBuilder := trees.NewBuilder()
 	return createApplication(
+		onOpenFn,
 		contentsBuilder,
 		contentBuilder,
 		referenceAdapter,
