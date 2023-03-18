@@ -137,12 +137,6 @@ func (app *application) Open(name string) (*uint, error) {
 		}
 	}
 
-	// execute the open callback
-	err := app.onOpenFn(name)
-	if err != nil {
-		return nil, err
-	}
-
 	// open the connection:
 	path := filepath.Join(app.dirPath, name)
 	pConn, err := os.Open(path)
@@ -163,7 +157,13 @@ func (app *application) Open(name string) (*uint, error) {
 		delList:    map[string]references.ContentKey{},
 	}
 
-	app.contexts[pContext.identifier] = pContext
+	// execute the open callback
+	err = app.onOpenFn(pContext.identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	//app.contexts[pContext.identifier] = pContext
 	return &pContext.identifier, nil
 }
 

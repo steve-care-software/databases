@@ -1,7 +1,7 @@
 package databases
 
 // OnOpenFn represents the onOpen func
-type OnOpenFn func(name string) error
+type OnOpenFn func(context uint) error
 
 // Application represents the database application
 type Application interface {
