@@ -158,6 +158,26 @@ func (app *application) Open(name string) (*uint, error) {
 	return &pContext.identifier, nil
 }
 
+// Lock locks the database file using the provided context
+func (app *application) Lock(context uint) error {
+	if pContext, ok := app.contexts[context]; ok {
+		return pContext.pLock.TryLock()
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Lock using this context", context)
+	return errors.New(str)
+}
+
+// Unlock unlocks the database file using the provided context
+func (app *application) Unlock(context uint) error {
+	if pContext, ok := app.contexts[context]; ok {
+		return pContext.pLock.Unlock()
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Unlock using this context", context)
+	return errors.New(str)
+}
+
 // Read reads data using context, at offset, for a given length
 func (app *application) Read(context uint, offset uint, length uint) ([]byte, error) {
 	if pContext, ok := app.contexts[context]; ok {
@@ -208,16 +228,8 @@ func (app *application) Write(context uint, offset int64, data []byte) error {
 		return nil
 	}
 
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Read using this context", context)
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Write using this context", context)
 	return errors.New(str)
-}
-
-func (app *application) makeChunkSize(length uint) uint {
-	if app.readChunkSize > length {
-		return length
-	}
-
-	return app.readChunkSize
 }
 
 // Close closes a context

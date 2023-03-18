@@ -9,6 +9,8 @@ type Application interface {
 	New(name string) error
 	Delete(name string) error
 	Open(name string) (*uint, error)
+	Lock(context uint) error
+	Unlock(context uint) error
 	Read(context uint, offset uint, length uint) ([]byte, error)
 	Write(context uint, offset int64, data []byte) error
 	Close(context uint) error
