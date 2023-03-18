@@ -3,6 +3,7 @@ package files
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -238,6 +239,65 @@ func (app *application) Write(context uint, offset int64, data []byte) error {
 	}
 
 	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Write using this context", context)
+	return errors.New(str)
+}
+
+// Copy copies databases by source and destination names
+func (app *application) Copy(context uint, destination string) error {
+	if pContext, ok := app.contexts[context]; ok {
+		// create the source path:
+		sourcePath := filepath.Join(app.dirPath, pContext.name)
+
+		// create the back file:
+		backupName := fmt.Sprintf("%s%s%s", pContext.name, fileNameExtensionDelimiter, app.bckExtension)
+		backupPath := filepath.Join(app.dirPath, backupName)
+
+		// copy the source database to a backup file:
+		backupPtr, err := os.Create(backupPath)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(backupPtr, pContext.pConn)
+		if err != nil {
+			return err
+		}
+
+		// close the backup file:
+		err = backupPtr.Close()
+		if err != nil {
+			return err
+		}
+
+		// close the source connection:
+		err = pContext.pConn.Close()
+		if err != nil {
+			return err
+		}
+
+		// delete the source database:
+		err = os.Remove(sourcePath)
+		if err != nil {
+			return err
+		}
+
+		// rename the destination database to source:
+		destinationFile := fmt.Sprintf("%s%s%s", pContext.name, fileNameExtensionDelimiter, app.dstExtension)
+		destinationPath := filepath.Join(app.dirPath, destinationFile)
+		err = os.Rename(destinationPath, sourcePath)
+		if err != nil {
+			return err
+		}
+
+		// delete the backup file:
+		err = os.Remove(backupPath)
+		if err != nil {
+			return err
+		}
+
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Copy using this context", context)
 	return errors.New(str)
 }
 

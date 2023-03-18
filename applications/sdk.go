@@ -13,5 +13,6 @@ type Application interface {
 	Unlock(context uint) error
 	Read(context uint, offset uint, length uint) ([]byte, error)
 	Write(context uint, offset int64, data []byte) error
+	Copy(context uint, destination string) error
 	Close(context uint) error
 }
