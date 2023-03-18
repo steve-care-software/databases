@@ -1,19 +1,15 @@
 package files
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/juju/fslock"
 	databases "github.com/steve-care-software/databases/applications"
 	"github.com/steve-care-software/databases/domain/contents"
 	"github.com/steve-care-software/databases/domain/references"
-	"github.com/steve-care-software/libs/cryptography/hash"
 	"github.com/steve-care-software/libs/cryptography/trees"
 )
 
@@ -138,11 +134,6 @@ func (app *application) Open(name string) (*uint, error) {
 		}
 	}
 
-	reference, offset, err := app.retrieveReference(name)
-	if err != nil {
-		return nil, err
-	}
-
 	// open the connection:
 	path := filepath.Join(app.dirPath, name)
 	pConn, err := os.Open(path)
@@ -159,8 +150,6 @@ func (app *application) Open(name string) (*uint, error) {
 		pConn:      pConn,
 		pLock:      pLock,
 		name:       name,
-		reference:  reference,
-		dataOffset: offset,
 		insertList: []contents.Content{},
 		delList:    map[string]references.ContentKey{},
 	}
@@ -169,7 +158,7 @@ func (app *application) Open(name string) (*uint, error) {
 	return &pContext.identifier, nil
 }
 
-// Read reads
+// Read reads data using context, at offset, for a given length
 func (app *application) Read(context uint, offset uint, length uint) ([]byte, error) {
 	if pContext, ok := app.contexts[context]; ok {
 		contentBytes := make([]byte, length)
@@ -190,474 +179,45 @@ func (app *application) Read(context uint, offset uint, length uint) ([]byte, er
 	return nil, errors.New(str)
 }
 
+// Write writes data using context, at offset
+func (app *application) Write(context uint, offset int64, data []byte) error {
+	if pContext, ok := app.contexts[context]; ok {
+		// seek the file at the from byte:
+		seekOffset, err := pContext.pConn.Seek(offset, 0)
+		if err != nil {
+			return err
+		}
+
+		if seekOffset != offset {
+			str := fmt.Sprintf("the offset was expected to be %d, %d returned after file seek", offset, seekOffset)
+			return errors.New(str)
+		}
+
+		// write the data on disk:
+		amountWritten, err := pContext.pConn.Write(data)
+		if err != nil {
+			return err
+		}
+
+		amountExpected := len(data)
+		if amountExpected != amountWritten {
+			str := fmt.Sprintf("%d bytes were expected to be written, %d actually written", amountExpected, amountWritten)
+			return errors.New(str)
+		}
+
+		return nil
+	}
+
+	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot Read using this context", context)
+	return errors.New(str)
+}
+
 func (app *application) makeChunkSize(length uint) uint {
 	if app.readChunkSize > length {
 		return length
 	}
 
 	return app.readChunkSize
-}
-
-func (app *application) retrieveReference(name string) (references.Reference, uint, error) {
-	path := filepath.Join(app.dirPath, name)
-	pConn, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	defer pConn.Close()
-
-	// read the reference length in bytes:
-	refLengthBytes := make([]byte, expectedReferenceBytesLength)
-	refAmount, err := pConn.ReadAt(refLengthBytes, 0)
-	if err != nil || refAmount <= 0 {
-		return nil, 0, nil
-	}
-
-	if refAmount != expectedReferenceBytesLength {
-		str := fmt.Sprintf("%d bytes were expected to be read when reading the reference length bytes, %d actually read", expectedReferenceBytesLength, refAmount)
-		return nil, 0, errors.New(str)
-	}
-
-	// convert the reference length to uint64:
-	refLength := int(binary.LittleEndian.Uint64(refLengthBytes))
-
-	// read the reference data:
-	refAllBytes := []byte{}
-	offset := int64(expectedReferenceBytesLength)
-
-	// setup the read chunk size:
-	chunkSize := int(app.makeChunkSize(uint(refLength)))
-	amount := int((refLength / chunkSize) + 1)
-	lastChunkSize := refLength - (chunkSize * (amount - 1))
-
-	for i := 0; i < amount; i++ {
-		readSize := chunkSize
-		if i+1 >= amount {
-			readSize = lastChunkSize
-		}
-
-		refContentBytes := make([]byte, readSize)
-		refContentAmount, err := pConn.ReadAt(refContentBytes, offset)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		refAllBytes = append(refAllBytes, refContentBytes...)
-		offset += int64(refContentAmount)
-	}
-
-	// convert the content to a reference instance:
-	ins, err := app.referenceAdapter.ToReference(refAllBytes)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return ins, uint(offset), nil
-}
-
-func (app *application) makeToDeleteKeyname(kind uint, hash hash.Hash) string {
-	return fmt.Sprintf("%d%s", kind, hash.String())
-}
-
-// Cancel cancels a context
-func (app *application) Cancel(context uint) error {
-	if pContext, ok := app.contexts[context]; ok {
-		app.contexts[context] = pContext
-		return nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be canceled", context)
-	return errors.New(str)
-}
-
-// Commit commits a context
-func (app *application) Commit(context uint) error {
-	// update the reference:
-	updatedReference, err := app.updateReference(context)
-	if err != nil {
-		return err
-	}
-
-	if updatedReference == nil {
-		return nil
-	}
-
-	if pContext, ok := app.contexts[context]; ok {
-		// update database on disk:
-		pConn, pDataOffset, err := app.updateDatabaseOnFile(pContext, updatedReference)
-		if err != nil {
-			return err
-		}
-
-		// update the file connection and reference:
-		app.contexts[context].reference = updatedReference
-		app.contexts[context].dataOffset = *pDataOffset
-		app.contexts[context].pConn = pConn
-		app.contexts[context].insertList = []contents.Content{}
-		app.contexts[context].delList = map[string]references.ContentKey{}
-		return nil
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be comitted", context)
-	return errors.New(str)
-}
-
-func (app *application) updateReference(context uint) (references.Reference, error) {
-	if pContext, ok := app.contexts[context]; ok {
-		// retrieve the commits list:
-		commitsList := []references.Commit{}
-		if pContext.reference != nil {
-			commitsList = pContext.reference.Commits().List()
-		}
-
-		// find the offset:
-		offset := int64(0)
-		if pContext.reference != nil {
-			if pContext.reference.HasContentKeys() {
-				offset = pContext.reference.ContentKeys().Next()
-			}
-		}
-
-		// find the latest commit:
-		builder := app.referenceCommitBuilder.Create()
-		if pContext.reference != nil {
-			refCommit := pContext.reference.Commits().Latest()
-			builder.WithParent(refCommit.Hash())
-		}
-
-		// get the pending content list:
-		contentKeysMap := map[string]references.ContentKey{}
-		if pContext.reference != nil {
-			if pContext.reference.HasContentKeys() {
-				contentKeysList := pContext.reference.ContentKeys().List()
-				for _, oneContentKey := range contentKeysList {
-					keyname := oneContentKey.Hash().String()
-					contentKeysMap[keyname] = oneContentKey
-				}
-			}
-		}
-
-		// if there is content to delete:
-		if len(pContext.delList) > 0 {
-			blocks := [][]byte{}
-			for _, oneContentKey := range pContext.delList {
-				// add the hash in the blocks for the commit values:
-				blocks = append(blocks, oneContentKey.Hash().Bytes())
-			}
-
-			values, err := app.hashTreeBuilder.Create().WithBlocks(blocks).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			action, err := app.referenceActionBuilder.Create().WithDelete(values).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			createdOn := time.Now().UTC()
-			commit, err := builder.WithAction(action).CreatedOn(createdOn).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			for _, oneContentKey := range pContext.delList {
-				// update the offset:
-				offset -= int64(oneContentKey.Content().Length())
-
-				// remove the content key:
-				keyname := oneContentKey.Hash().String()
-				if _, ok := contentKeysMap[keyname]; ok {
-					delete(contentKeysMap, keyname)
-				}
-			}
-
-			// save the commit in the list:
-			commitsList = append(commitsList, commit)
-		}
-
-		contentKeysList := []references.ContentKey{}
-		for _, oneContentKey := range contentKeysMap {
-			contentKeysList = append(contentKeysList, oneContentKey)
-		}
-
-		// if there is content to insert:
-		if len(pContext.insertList) > 0 {
-			blocks := [][]byte{}
-			for _, oneContent := range pContext.insertList {
-				// add the hash in the blocks for the commit values:
-				blocks = append(blocks, oneContent.Hash().Bytes())
-			}
-
-			values, err := app.hashTreeBuilder.Create().WithBlocks(blocks).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			action, err := app.referenceActionBuilder.Create().WithInsert(values).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			createdOn := time.Now().UTC()
-			commit, err := builder.WithAction(action).CreatedOn(createdOn).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			commitHash := commit.Hash()
-			for _, oneContent := range pContext.insertList {
-				// build the pointer:
-				dataLength := int64(len(oneContent.Data()))
-				contentKeyPointer, err := app.referencePointerBuilder.Create().From(uint(offset)).WithLength(uint(dataLength)).Now()
-				if err != nil {
-					return nil, err
-				}
-
-				// build the content key:
-				contentKey, err := app.referenceContentKeyBuilder.Create().WithHash(oneContent.Hash()).WithKind(oneContent.Kind()).WithContent(contentKeyPointer).WithCommit(commitHash).Now()
-				if err != nil {
-					return nil, err
-				}
-
-				//save the content key to the list:
-				contentKeysList = append(contentKeysList, contentKey)
-
-				// update the offset:
-				offset += dataLength
-			}
-
-			// save the commit in the list:
-			commitsList = append(commitsList, commit)
-		}
-
-		commits, err := app.referenceCommitsBuilder.Create().WithList(commitsList).Now()
-		if err != nil {
-			return nil, err
-		}
-
-		referenceBuilder := app.referenceBuilder.Create().WithCommits(commits)
-		if len(contentKeysList) > 0 {
-			updatedContentKeys, err := app.referenceContentKeysBuilder.Create().WithList(contentKeysList).Now()
-			if err != nil {
-				return nil, err
-			}
-
-			referenceBuilder.WithContentKeys(updatedContentKeys)
-		}
-
-		return referenceBuilder.Now()
-	}
-
-	str := fmt.Sprintf("the given context (%d) does not exists and therefore cannot be comitted", context)
-	return nil, errors.New(str)
-}
-
-func (app *application) updateDatabaseOnFile(context *context, updatedReference references.Reference) (*os.File, *uint, error) {
-	// create a lock on the file:
-	err := context.pLock.TryLock()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// release the lock on closing the method:
-	defer context.pLock.Unlock()
-
-	// write data on the destination file:
-	pDataOffset, err := app.writeDataAndReferenceOnDestinationFile(context, updatedReference)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// create the source path:
-	sourcePath := filepath.Join(app.dirPath, context.name)
-
-	// create the backup path:
-	backupFile := fmt.Sprintf("%s%s%s", context.name, fileNameExtensionDelimiter, app.bckExtension)
-	backupPath := filepath.Join(app.dirPath, backupFile)
-
-	// copy the source database to a backup file:
-	backupPtr, err := os.Create(backupPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	_, err = io.Copy(backupPtr, context.pConn)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// close the backup file:
-	err = backupPtr.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// close the source connection:
-	err = context.pConn.Close()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// delete the source database:
-	err = os.Remove(sourcePath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// rename the destination database to source:
-	destinationFile := fmt.Sprintf("%s%s%s", context.name, fileNameExtensionDelimiter, app.dstExtension)
-	destinationPath := filepath.Join(app.dirPath, destinationFile)
-	err = os.Rename(destinationPath, sourcePath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// delete the backup file:
-	err = os.Remove(backupPath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// re-open the source connection:
-	pNewConn, err := os.Open(sourcePath)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return pNewConn, pDataOffset, nil
-}
-
-func (app *application) writeDataAndReferenceOnDestinationFile(context *context, updatedReference references.Reference) (*uint, error) {
-	// destination path:
-	destinationFile := fmt.Sprintf("%s%s%s", context.name, fileNameExtensionDelimiter, app.dstExtension)
-	destinationPath := filepath.Join(app.dirPath, destinationFile)
-
-	// create the destination file:
-	destination, err := os.Create(destinationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	// close the destination:
-	defer destination.Close()
-
-	// convert the updated reference to data:
-	refData, err := app.referenceToContent(updatedReference)
-	if err != nil {
-		return nil, err
-	}
-
-	// write the reference data on disk:
-	writtenAmount, err := destination.Write(refData)
-	if err != nil {
-		return nil, err
-	}
-
-	if writtenAmount != len(refData) {
-		str := fmt.Sprintf("%d bytes were expected to be writte while writing the updated reference bytes, %d actually written", len(refData), writtenAmount)
-		return nil, errors.New(str)
-	}
-
-	// declare the read and write offsets:
-	readOffset := int64(context.dataOffset)
-	writeOffset := int64(writtenAmount)
-	if context.reference != nil {
-		if context.reference.HasContentKeys() {
-			contentKeys := context.reference.ContentKeys().List()
-			for _, oneContentKey := range contentKeys {
-				toDelKeyname := app.makeToDeleteKeyname(oneContentKey.Kind(), oneContentKey.Hash())
-				if _, ok := context.delList[toDelKeyname]; ok {
-					continue
-				}
-
-				// fetch the pointer
-				pointer := oneContentKey.Content()
-
-				// read the content:
-				readOffset = readOffset + int64(pointer.From())
-				to := readOffset + int64(pointer.Length())
-				chunkSize := to - readOffset
-				contentBytes := make([]byte, chunkSize)
-				amountRead, err := context.pConn.ReadAt(contentBytes, readOffset)
-				if err != nil {
-					break
-				}
-
-				if chunkSize != int64(amountRead) {
-					str := fmt.Sprintf("%d bytes were expected to be read from source database, %d actually read", chunkSize, amountRead)
-					return nil, errors.New(str)
-				}
-
-				// write content on destination:
-				err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
-				if err != nil {
-					break
-				}
-
-				// update the write offset:
-				writeOffset += int64(len(contentBytes))
-			}
-		}
-
-	}
-
-	// write the data on disk:
-	for _, oneContent := range context.insertList {
-		contentBytes := oneContent.Data()
-		err = app.saveDataOnDisk(writeOffset, contentBytes, destination)
-		if err != nil {
-			break
-		}
-
-		// update the offset:
-		writeOffset += int64(len(contentBytes))
-	}
-
-	dataOffset := uint(writtenAmount)
-	return &dataOffset, nil
-}
-
-func (app *application) referenceToContent(reference references.Reference) ([]byte, error) {
-	contentBytes, err := app.referenceAdapter.ToContent(reference)
-	if err != nil {
-		return nil, err
-	}
-
-	bytesLength := make([]byte, expectedReferenceBytesLength)
-	binary.LittleEndian.PutUint64(bytesLength, uint64(len(contentBytes)))
-
-	data := []byte{}
-	data = append(data, bytesLength...)
-	return append(data, contentBytes...), nil
-}
-
-func (app *application) saveDataOnDisk(offset int64, data []byte, pConn *os.File) error {
-	// seek the file at the from byte:
-	seekOffset, err := pConn.Seek(offset, 0)
-	if err != nil {
-		return err
-	}
-
-	if seekOffset != offset {
-		str := fmt.Sprintf("the offset was expected to be %d, %d returned after file seek", offset, seekOffset)
-		return errors.New(str)
-	}
-
-	// write the data on disk:
-	amountWritten, err := pConn.Write(data)
-	if err != nil {
-		return err
-	}
-
-	amountExpected := len(data)
-	if amountExpected != amountWritten {
-		str := fmt.Sprintf("%d bytes were expected to be written, %d actually written", amountExpected, amountWritten)
-		return errors.New(str)
-	}
-
-	return nil
 }
 
 // Close closes a context

@@ -1,5 +1,8 @@
 package databases
 
+// OnOpenFn represents the onOpen func
+type OnOpenFn func(name string) error
+
 // Application represents the database application
 type Application interface {
 	Exists(name string) (bool, error)
@@ -7,7 +10,6 @@ type Application interface {
 	Delete(name string) error
 	Open(name string) (*uint, error)
 	Read(context uint, offset uint, length uint) ([]byte, error)
-	Cancel(context uint) error
-	Commit(context uint) error
+	Write(context uint, offset int64, data []byte) error
 	Close(context uint) error
 }
